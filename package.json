@@ -1,0 +1,24 @@
+{
+  "name": "calsync",
+  "version": "1.0.0",
+  "description": "Calendar sync",
+  "main": "test.js",
+  "dependencies": {
+    "google-auth-library": "^10.3.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KiterationLabs/calsync.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KiterationLabs/calsync/issues"
+  },
+  "homepage": "https://github.com/KiterationLabs/calsync#readme"
+}
