@@ -2,7 +2,6 @@
 import ical from 'node-ical';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // —— helpers ——
 const toRFC3339 = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -16,6 +15,7 @@ const normalizeLocation = (raw) =>
 
 // Pull useful bits from that mega SUMMARY line
 function extractFromSummary(summaryRaw = '') {
+	// Collapse whitespace so our regexes are easier
 	const s = String(summaryRaw).replace(/\s+/g, ' ').trim();
 
 	const programs = s
@@ -26,7 +26,7 @@ function extractFromSummary(summaryRaw = '') {
 		.match(/Kurs\.grp:\s*(.+?)(?=\s+(Hjälpm\.:|Sign:|Moment:|Aktivitetstyp:|$))/i)?.[1]
 		?.trim();
 
-	// Allow inner colons inside Moment (e.g. "Extratillfälle: Programintroduktion...")
+	// Allow inner colons inside Moment (e.g. "Extratillfälle: Programintroduktion ...")
 	const moment = s.match(/Moment:\s*(.+?)(?=\s+(Aktivitetstyp:|$))/i)?.[1]?.trim();
 
 	const sign = s.match(/Sign:\s*([^\s]+)(?=\s|$)/i)?.[1]?.trim();
@@ -34,20 +34,18 @@ function extractFromSummary(summaryRaw = '') {
 	return { programs, kurs, moment, sign, raw: s };
 }
 
-// Build your Google Calendar event shape
+// Build the Google Calendar event shape you want
 function veventToGcal(e) {
 	const { programs, kurs, moment, raw } = extractFromSummary(e.summary);
 	const location = normalizeLocation(e.location);
 
-	// Title: the Moment; fall back to raw SUMMARY if missing
+	// Title: prefer the Moment text; fall back to the original SUMMARY if missing
 	const title = moment || e.summary || 'Untitled';
 
-	// Description: "<programs> - <kurs>"
-	// Only include the hyphen if both parts exist.
-	const descLeft = (programs || '').trim();
-	const descRight = (kurs || '').trim();
-	const description =
-		descLeft && descRight ? `${descLeft} - ${descRight}` : descLeft || descRight || raw;
+	// Description: "<programs> - <kurs>" (only add '-' if both exist; else use whichever exists; else raw)
+	const left = (programs || '').trim();
+	const right = (kurs || '').trim();
+	const description = left && right ? `${left} - ${right}` : left || right || raw;
 
 	const status =
 		(e.status || 'CONFIRMED').toLowerCase() === 'cancelled' ? 'cancelled' : 'confirmed';
@@ -81,43 +79,37 @@ function veventToGcal(e) {
 	};
 }
 
-export async function parseIcsText(icsText) {
-	const data = ical.sync.parseICS(icsText);
-	const events = Object.values(data).filter((v) => v.type === 'VEVENT');
-	return events.map(veventToGcal);
+// ————————————————————————————————————————————————
+// SINGLE EXPORTED FUNCTION
+// ————————————————————————————————————————————————
+export default async function icsToGcalJsonFile(
+	inputIcsPath,
+	outputJsonPath,
+	{ pretty = true } = {}
+) {
+	const icsText = await fs.readFile(inputIcsPath, 'utf8');
+
+	const parsed = ical.sync.parseICS(icsText);
+	const events = Object.values(parsed).filter((v) => v.type === 'VEVENT');
+	const mapped = events.map(veventToGcal);
+
+	const json = JSON.stringify(mapped, null, pretty ? 2 : 0);
+
+	const absOut = path.resolve(outputJsonPath);
+	await fs.mkdir(path.dirname(absOut), { recursive: true });
+	await fs.writeFile(absOut, json, 'utf8');
+
+	return { count: mapped.length, outputPath: absOut, events: mapped };
 }
 
-const isMain = import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
-	try {
-		const __filename = fileURLToPath(import.meta.url);
-		const __dirname = path.dirname(__filename);
+/*
+Usage:
 
-		// CLI: node parse-ics.js [input.ics] [--out=out.json] [--pretty]
-		const args = process.argv.slice(2);
-		const inputArg =
-			args.find((a) => !a.startsWith('--')) || path.resolve(__dirname, 'ics/regular.ics');
-		const outArg = (args.find((a) => a.startsWith('--out=')) || '').split('=')[1];
-		const pretty = args.includes('--pretty');
+import icsToGcalJsonFile from './parse-ics.js';
 
-		const inputPath = path.resolve(__dirname, inputArg);
-		const outPath = outArg ? path.resolve(__dirname, outArg) : null;
-
-		const ics = await fs.readFile(inputPath, 'utf8');
-		const mapped = await parseIcsText(ics);
-
-		const json = JSON.stringify(mapped, null, pretty ? 2 : 0);
-
-		if (outPath) {
-			await fs.mkdir(path.dirname(outPath), { recursive: true });
-			await fs.writeFile(outPath, json, 'utf8');
-			console.log(`Wrote ${mapped.length} events → ${outPath}`);
-		} else {
-			// No --out provided: print to stdout
-			console.log(json);
-		}
-	} catch (err) {
-		console.error('Failed to parse ICS:', err.message);
-		process.exit(1);
-	}
-}
+await icsToGcalJsonFile(
+  'ics/regular.ics',           // input ICS path
+  'out/events.json',           // output JSON path
+  { pretty: true }             // optional
+);
+*/
