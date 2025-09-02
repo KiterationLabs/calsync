@@ -66,7 +66,7 @@ async function delCal() {
 
 	//! DEBUGGING
 	const id =
-		'e206e7583f80d11f61a2b38d4e0472404ef9df54cf372afa8f009c150cf5704e@group.calendar.google.com';
+		'eea18001ae5ef290daa73a8716c7f194e1be44a1e6cf839fd147e638239e6794@group.calendar.google.com';
 
 	try {
 		const res = await deleteCalendarById(id, { fallbackUnsubscribe: true });

@@ -11,12 +11,41 @@ function keyByUidStart(e) {
 	return `${uid}::${start}`;
 }
 
+async function findByICalUID(cal, calendarId, iCalUID) {
+	const { data } = await cal.events.list({
+		calendarId,
+		iCalUID,
+		singleEvents: true,
+		showDeleted: false,
+		maxResults: 50,
+	});
+	return data.items ?? [];
+}
+
+function chooseBestCandidate(candidates, incoming) {
+	if (!candidates.length) return null;
+	const incTs = incoming.start?.dateTime ? new Date(incoming.start.dateTime).getTime() : null;
+	const incDate = !incTs ? incoming.start?.date : null;
+
+	if (incTs) {
+		const m = candidates.find(
+			(c) => c.start?.dateTime && new Date(c.start.dateTime).getTime() === incTs
+		);
+		if (m) return m;
+	}
+	if (incDate) {
+		const m = candidates.find((c) => c.start?.date === incDate);
+		if (m) return m;
+	}
+	return candidates[0];
+}
+
 async function prefetchExistingIndex(cal, calendarId, items) {
 	const starts = items
 		.map((e) => new Date(e.start?.dateTime ?? e.start?.date).getTime())
 		.filter(Number.isFinite);
 
-	if (!starts.length) return new Map(); // <= guard
+	if (!starts.length) return new Map();
 
 	const minTs = Math.min(...starts);
 	const maxTs = Math.max(...starts);
@@ -32,11 +61,11 @@ async function prefetchExistingIndex(cal, calendarId, items) {
 			timeMin,
 			timeMax,
 			singleEvents: true,
-			orderBy: 'startTime', // <= optional nicety
+			orderBy: 'startTime',
 			showDeleted: false,
 			maxResults: 2500,
 			pageToken,
-			// fields: 'items(id,iCalUID,start,end,summary,description,location,extendedProperties),nextPageToken' // <= optional (smaller payload)
+			// fields: 'items(id,iCalUID,start,end,summary,description,location,extendedProperties),nextPageToken'
 		});
 		for (const ev of data.items ?? []) {
 			idx.set(keyByUidStart(ev), ev);
@@ -46,7 +75,7 @@ async function prefetchExistingIndex(cal, calendarId, items) {
 	return idx;
 }
 
-/** Backoff + retry helper for rate-limit/server errors (works for POST, too). */
+/** Backoff + retry helper */
 async function callWithRetry(fn, { maxAttempts = 7, baseDelayMs = 600, maxDelayMs = 10_000 } = {}) {
 	let attempt = 0,
 		lastErr;
@@ -57,14 +86,11 @@ async function callWithRetry(fn, { maxAttempts = 7, baseDelayMs = 600, maxDelayM
 			lastErr = err;
 			const status = err?.response?.status;
 			const reason = err?.response?.data?.error?.errors?.[0]?.reason;
-
 			const retriable =
 				status === 429 ||
 				status === 500 ||
 				status === 503 ||
-				// Calendar sometimes uses 403 for quota:
 				(status === 403 && /rateLimitExceeded|userRateLimitExceeded/i.test(reason ?? ''));
-
 			if (!retriable) throw err;
 
 			const retryAfter = Number(err?.response?.headers?.['retry-after']);
@@ -79,7 +105,7 @@ async function callWithRetry(fn, { maxAttempts = 7, baseDelayMs = 600, maxDelayM
 	throw lastErr;
 }
 
-/** Simple global throttle (QPS) shared by all workers. */
+/** Simple global throttle (QPS) */
 function makeThrottle(throttleMs) {
 	let nextAt = 0;
 	return async function throttle() {
@@ -130,16 +156,6 @@ function toWritableBody(e, { includeICalUID = false } = {}) {
 
 /**
  * Upsert events from a JSON file into a calendar, with throttling & retries.
- *
- * @param {string} calendarId
- * @param {string} jsonFilePath
- * @param {Object} [opts]
- * @param {boolean} [opts.dryRun=false]
- * @param {number}  [opts.concurrency=2]            // keep low for Calendar writes
- * @param {number}  [opts.throttleMs=350]           // min gap between writes (per project)
- * @param {number}  [opts.maxAttempts=7]            // max attempts per write call
- * @param {number}  [opts.baseDelayMs=600]          // backoff base for retries
- * @returns {Promise<{created:number, updated:number, skipped:number, errors:number}>}
  */
 export async function upsertEventsFromJsonFile(
 	calendarId,
@@ -153,12 +169,13 @@ export async function upsertEventsFromJsonFile(
 	const items = JSON.parse(raw);
 	if (!Array.isArray(items)) throw new Error('JSON must be an array of events');
 
+	// process oldest → newest
 	items.sort(
 		(a, b) =>
 			new Date(a.start?.dateTime ?? a.start?.date) - new Date(b.start?.dateTime ?? b.start?.date)
 	);
 
-	// Prefetch ONCE and reuse
+	// Prefetch once and reuse
 	const existingIndex = await prefetchExistingIndex(cal, calendarId, items);
 
 	let created = 0,
@@ -172,13 +189,21 @@ export async function upsertEventsFromJsonFile(
 		while (idx < items.length) {
 			const i = idx++;
 			const evt = items[i];
+
 			try {
 				if (!evt.iCalUID) throw new Error('Missing iCalUID');
 
-				// Use the pre-fetched index
-				const existing = existingIndex.get(keyByUidStart(evt));
+				// 1) Try prefetch index
+				let existing = existingIndex.get(keyByUidStart(evt));
+
+				// 2) Fallback: event time may have moved → search by UID
+				if (!existing) {
+					const candidates = await findByICalUID(cal, calendarId, evt.iCalUID);
+					existing = chooseBestCandidate(candidates, evt);
+				}
 
 				if (!existing) {
+					// 3) CREATE (no match anywhere)
 					const body = toWritableBody(evt, { includeICalUID: true });
 					if (dryRun) {
 						console.log(`[DRY] create  ${evt.iCalUID}  ${evt.summary}`);
@@ -189,13 +214,13 @@ export async function upsertEventsFromJsonFile(
 							{ maxAttempts, baseDelayMs }
 						);
 						console.log(`created  ${evt.iCalUID}  ${evt.summary}`);
-						// keep index in sync so later items in this run can see it
 						existingIndex.set(keyByUidStart(createdEv), createdEv);
 					}
 					created++;
 					continue;
 				}
 
+				// 4) UPDATE if changed
 				if (sameEvent(existing, evt)) {
 					skipped++;
 					continue;
@@ -212,7 +237,6 @@ export async function upsertEventsFromJsonFile(
 						{ maxAttempts, baseDelayMs }
 					);
 					console.log(`updated  ${evt.iCalUID}  ${evt.summary}`);
-					// update index (handles start-time changes)
 					existingIndex.delete(oldKey);
 					existingIndex.set(keyByUidStart(updatedEv), updatedEv);
 				}
