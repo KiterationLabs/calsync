@@ -9,7 +9,7 @@
 		"node-ical": "^0.20.1"
 	},
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"dev": "node main.js"
 	},
 	"repository": {
 		"type": "git",
