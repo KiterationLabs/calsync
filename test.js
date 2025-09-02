@@ -16,33 +16,39 @@ const normalizeLocation = (raw) =>
 
 // Pull useful bits from that mega SUMMARY line
 function extractFromSummary(summaryRaw = '') {
-	const s = summaryRaw.replace(/\s+/g, ' ').trim();
+	const s = String(summaryRaw).replace(/\s+/g, ' ').trim();
 
-	const moment = s.match(/Moment:\s*([^:]+?)(?=\s+(Aktivitetstyp:|$))/i)?.[1]?.trim();
-	const sign = s.match(/Sign:\s*([^\s]+)(?=\s|$)/i)?.[1]?.trim();
-	const kurs = s
-		.match(/Kurs\.grp:\s*([^]+?)(?=\s+(Hjälpm\.:|Sign:|Moment:|Aktivitetstyp:|$))/i)?.[1]
+	const programs = s
+		.match(/Program:\s*(.+?)(?=\s+(Kurs\.grp:|Hjälpm\.:|Sign:|Moment:|Aktivitetstyp:|$))/i)?.[1]
 		?.trim();
 
-	return { moment, sign, kurs, raw: s };
+	const kurs = s
+		.match(/Kurs\.grp:\s*(.+?)(?=\s+(Hjälpm\.:|Sign:|Moment:|Aktivitetstyp:|$))/i)?.[1]
+		?.trim();
+
+	// Allow inner colons inside Moment (e.g. "Extratillfälle: Programintroduktion...")
+	const moment = s.match(/Moment:\s*(.+?)(?=\s+(Aktivitetstyp:|$))/i)?.[1]?.trim();
+
+	const sign = s.match(/Sign:\s*([^\s]+)(?=\s|$)/i)?.[1]?.trim();
+
+	return { programs, kurs, moment, sign, raw: s };
 }
 
-// Build your Google Calendar event shape (the one you liked)
+// Build your Google Calendar event shape
 function veventToGcal(e) {
-	const { moment, sign, kurs, raw } = extractFromSummary(e.summary);
+	const { programs, kurs, moment, raw } = extractFromSummary(e.summary);
 	const location = normalizeLocation(e.location);
 
-	// Title rule: prefer LOCATION; fallback to Moment; else raw SUMMARY
-	const title = location || moment || e.summary || 'Untitled';
+	// Title: the Moment; fall back to raw SUMMARY if missing
+	const title = moment || e.summary || 'Untitled';
 
-	// Description like: "Moment, Kurs.grp, Sign"
-	const descParts = [];
-	if (moment) descParts.push(moment);
-	if (kurs) descParts.push(kurs);
-	if (sign) descParts.push(sign);
-	const description = descParts.length ? descParts.join(', ') : raw;
+	// Description: "<programs> - <kurs>"
+	// Only include the hyphen if both parts exist.
+	const descLeft = (programs || '').trim();
+	const descRight = (kurs || '').trim();
+	const description =
+		descLeft && descRight ? `${descLeft} - ${descRight}` : descLeft || descRight || raw;
 
-	// Status / transparency
 	const status =
 		(e.status || 'CONFIRMED').toLowerCase() === 'cancelled' ? 'cancelled' : 'confirmed';
 	const transparency =
@@ -50,10 +56,9 @@ function veventToGcal(e) {
 			? 'transparent'
 			: 'opaque';
 
-	// All-day vs timed
 	const isAllDay =
 		e.datetype === 'date' ||
-		(!e.end && e.start && e.start.getUTCHours() === 0 && e.start.getUTCMinutes() === 0);
+		(!e.end && e.start && e.start.getUTCHours?.() === 0 && e.start.getUTCMinutes?.() === 0);
 
 	const start = isAllDay
 		? { date: e.start.toISOString().slice(0, 10) }
@@ -64,7 +69,6 @@ function veventToGcal(e) {
 		: { dateTime: toRFC3339(e.end) };
 
 	return {
-		// For creation prefer events.import with iCalUID (no need to sanitize id)
 		iCalUID: e.uid,
 		summary: title,
 		location,
