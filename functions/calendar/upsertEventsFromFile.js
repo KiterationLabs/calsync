@@ -5,6 +5,47 @@ import { getCalendarClient } from './calendarAPI.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function keyByUidStart(e) {
+	const uid = e.iCalUID || e.id || '';
+	const start = e.start?.dateTime ? new Date(e.start.dateTime).getTime() : e.start?.date || '';
+	return `${uid}::${start}`;
+}
+
+async function prefetchExistingIndex(cal, calendarId, items) {
+	const starts = items
+		.map((e) => new Date(e.start?.dateTime ?? e.start?.date).getTime())
+		.filter(Number.isFinite);
+
+	if (!starts.length) return new Map(); // <= guard
+
+	const minTs = Math.min(...starts);
+	const maxTs = Math.max(...starts);
+
+	const timeMin = new Date(minTs - 24 * 3600 * 1000).toISOString();
+	const timeMax = new Date(maxTs + 24 * 3600 * 1000).toISOString();
+
+	const idx = new Map();
+	let pageToken;
+	do {
+		const { data } = await cal.events.list({
+			calendarId,
+			timeMin,
+			timeMax,
+			singleEvents: true,
+			orderBy: 'startTime', // <= optional nicety
+			showDeleted: false,
+			maxResults: 2500,
+			pageToken,
+			// fields: 'items(id,iCalUID,start,end,summary,description,location,extendedProperties),nextPageToken' // <= optional (smaller payload)
+		});
+		for (const ev of data.items ?? []) {
+			idx.set(keyByUidStart(ev), ev);
+		}
+		pageToken = data.nextPageToken;
+	} while (pageToken);
+	return idx;
+}
+
 /** Backoff + retry helper for rate-limit/server errors (works for POST, too). */
 async function callWithRetry(fn, { maxAttempts = 7, baseDelayMs = 600, maxDelayMs = 10_000 } = {}) {
 	let attempt = 0,
@@ -87,36 +128,6 @@ function toWritableBody(e, { includeICalUID = false } = {}) {
 	return body;
 }
 
-async function findByICalUID(cal, calendarId, iCalUID) {
-	const { data } = await callWithRetry(
-		() =>
-			cal.events.list({
-				calendarId,
-				iCalUID,
-				maxResults: 50,
-				singleEvents: true,
-				showDeleted: false,
-			}),
-		// GETs are usually retried by gaxios, but we keep our own for symmetry
-		{ maxAttempts: 5, baseDelayMs: 400 }
-	);
-	return data.items ?? [];
-}
-
-function chooseBestCandidate(candidates, incoming) {
-	if (!candidates.length) return null;
-	const incStart = normalizeWhen(incoming.start);
-	if (incStart?.ts) {
-		const m = candidates.find((c) => normalizeWhen(c.start)?.ts === incStart.ts);
-		if (m) return m;
-	}
-	if (incStart?.date) {
-		const m = candidates.find((c) => normalizeWhen(c.start)?.date === incStart.date);
-		if (m) return m;
-	}
-	return candidates[0];
-}
-
 /**
  * Upsert events from a JSON file into a calendar, with throttling & retries.
  *
@@ -142,11 +153,13 @@ export async function upsertEventsFromJsonFile(
 	const items = JSON.parse(raw);
 	if (!Array.isArray(items)) throw new Error('JSON must be an array of events');
 
-	// Process oldest → newest (no magic, just nicer logs)
 	items.sort(
 		(a, b) =>
 			new Date(a.start?.dateTime ?? a.start?.date) - new Date(b.start?.dateTime ?? b.start?.date)
 	);
+
+	// Prefetch ONCE and reuse
+	const existingIndex = await prefetchExistingIndex(cal, calendarId, items);
 
 	let created = 0,
 		updated = 0,
@@ -154,7 +167,6 @@ export async function upsertEventsFromJsonFile(
 		errors = 0;
 	const throttle = makeThrottle(throttleMs);
 
-	// worker pool
 	let idx = 0;
 	async function worker() {
 		while (idx < items.length) {
@@ -163,27 +175,27 @@ export async function upsertEventsFromJsonFile(
 			try {
 				if (!evt.iCalUID) throw new Error('Missing iCalUID');
 
-				const candidates = await findByICalUID(cal, calendarId, evt.iCalUID);
-				const existing = chooseBestCandidate(candidates, evt);
+				// Use the pre-fetched index
+				const existing = existingIndex.get(keyByUidStart(evt));
 
 				if (!existing) {
-					// CREATE via import
 					const body = toWritableBody(evt, { includeICalUID: true });
 					if (dryRun) {
 						console.log(`[DRY] create  ${evt.iCalUID}  ${evt.summary}`);
 					} else {
 						await throttle();
-						await callWithRetry(() => cal.events.import({ calendarId, requestBody: body }), {
-							maxAttempts,
-							baseDelayMs,
-						});
+						const { data: createdEv } = await callWithRetry(
+							() => cal.events.import({ calendarId, requestBody: body }),
+							{ maxAttempts, baseDelayMs }
+						);
 						console.log(`created  ${evt.iCalUID}  ${evt.summary}`);
+						// keep index in sync so later items in this run can see it
+						existingIndex.set(keyByUidStart(createdEv), createdEv);
 					}
 					created++;
 					continue;
 				}
 
-				// UPDATE if changed
 				if (sameEvent(existing, evt)) {
 					skipped++;
 					continue;
@@ -194,11 +206,15 @@ export async function upsertEventsFromJsonFile(
 					console.log(`[DRY] update  ${evt.iCalUID}  ${evt.summary}`);
 				} else {
 					await throttle();
-					await callWithRetry(
+					const oldKey = keyByUidStart(existing);
+					const { data: updatedEv } = await callWithRetry(
 						() => cal.events.patch({ calendarId, eventId: existing.id, requestBody: patchBody }),
 						{ maxAttempts, baseDelayMs }
 					);
 					console.log(`updated  ${evt.iCalUID}  ${evt.summary}`);
+					// update index (handles start-time changes)
+					existingIndex.delete(oldKey);
+					existingIndex.set(keyByUidStart(updatedEv), updatedEv);
 				}
 				updated++;
 			} catch (err) {

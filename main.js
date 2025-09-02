@@ -5,26 +5,8 @@ import 'dotenv/config';
 import { getCalendarClient } from './functions/calendar/calendarAPI.js';
 import { ensureCalendarBySummary } from './functions/calendar/ensureCalendarBySummary.js';
 import { upsertEventsFromJsonFile } from './functions/calendar/upsertEventsFromFile.js';
-
-async function listCalendars(cal) {
-	const all = [];
-	let pageToken;
-	do {
-		const { data } = await cal.calendarList.list({ maxResults: 250, pageToken });
-		all.push(...(data.items ?? []));
-		pageToken = data.nextPageToken;
-	} while (pageToken);
-
-	// Return the useful bits
-	return all.map((c) => ({
-		id: c.id,
-		summary: c.summary,
-		accessRole: c.accessRole,
-		primary: Boolean(c.primary),
-		selected: Boolean(c.selected),
-		timeZone: c.timeZone,
-	}));
-}
+import { deleteCalendarById } from './functions/calendar/deleteCalendar.js';
+import { listCalendars } from './functions/calendar/listCalendars.js';
 
 async function main() {
 	const myURL =
@@ -33,7 +15,7 @@ async function main() {
 	/*
 	const myURL =
 		'https://schema.mau.se/setup/jsp/Schema.jsp?startDatum=idag&intervallTyp=a&intervallAntal=1&sokMedAND=false&sprak=SV&resurser=k.MT155A-20252-TS250-%2C';
-  */
+    */
 
 	const { icsUrl, resourceId } = parseURL(myURL);
 	console.log(icsUrl);
@@ -52,7 +34,6 @@ async function main() {
 
 	let calendars = await listCalendars(cal);
 	console.table(calendars);
-	console.log(calendars);
 
 	// Ensure calendar exists (named after resourceId), public read-only, Stockholm TZ
 	const calendar = await ensureCalendarBySummary({
@@ -65,17 +46,35 @@ async function main() {
 
 	console.log('Using calendar:', calendar.id, '-', calendar.summary);
 
-	let newcalendars = await listCalendars(cal);
-	console.table(newcalendars);
+	calendars = await listCalendars(cal);
+	console.table(calendars);
 
 	const report = await upsertEventsFromJsonFile(calendar.id, `./out/${resourceId}.json`, {
 		dryRun: false,
-		concurrency: 2, // start low
-		throttleMs: 350, // ~3 writes/sec
-		maxAttempts: 7,
-		baseDelayMs: 600,
+		concurrency: 1,
+		throttleMs: 1000, // ~1 write/sec
+		baseDelayMs: 1500, // exponential backoff starting here
+		maxAttempts: 10,
 	});
 	console.log('Done:', report);
 }
 
+async function delCal() {
+	const cal = await getCalendarClient();
+	await cal.calendars.get({ calendarId: process.env.CALENDAR_ID });
+	console.log('Auth OK and calendar reachable');
+
+	//! DEBUGGING
+	const id =
+		'e206e7583f80d11f61a2b38d4e0472404ef9df54cf372afa8f009c150cf5704e@group.calendar.google.com';
+
+	try {
+		const res = await deleteCalendarById(id, { fallbackUnsubscribe: true });
+		console.log(`Calendar ${res.action}.`);
+	} catch (e) {
+		console.error('Delete failed:', e?.response?.data ?? e);
+	}
+}
+
 await main();
+// await delCal();
