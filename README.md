@@ -1,6 +1,4 @@
 # CalSync
-
-[![Build & Push](https://github.com/KiterationLabs/calsync/actions/workflows/build.yml/badge.svg)](https://github.com/KiterationLabs/calsync/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ready-blue)](#docker)
 
