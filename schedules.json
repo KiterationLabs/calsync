@@ -1,0 +1,48 @@
+{
+  "schedules": {
+    "kronox:TGIAR25h": {
+      "id": "kronox:TGIAR25h",
+      "type": "kronox-sync",
+      "payload": {
+        "sourceUrl": "https://schema.mau.se/setup/jsp/Schema.jsp?startDatum=idag&intervallTyp=a&intervallAntal=1&sprak=SV&sokMedAND=true&forklaringar=true&resurser=p.TGIAR25h",
+        "makePublic": true
+      },
+      "intervalMin": 15,
+      "enabled": true,
+      "nextRunAt": 1756903930
+    },
+    "kronox:MT155A-20252-TS250-": {
+      "id": "kronox:MT155A-20252-TS250-",
+      "type": "kronox-sync",
+      "payload": {
+        "sourceUrl": "https://schema.mau.se/setup/jsp/Schema.jsp?startDatum=idag&intervallTyp=a&intervallAntal=1&sprak=SV&sokMedAND=true&forklaringar=true&resurser=p.MT155A-20252-TS250-",
+        "makePublic": true
+      },
+      "intervalMin": 15,
+      "enabled": true,
+      "nextRunAt": 1756903930
+    },
+    "kronox:TGIAR24h": {
+      "id": "kronox:TGIAR24h",
+      "type": "kronox-sync",
+      "payload": {
+        "sourceUrl": "https://schema.mau.se/setup/jsp/Schema.jsp?startDatum=idag&intervallTyp=a&intervallAntal=1&sprak=SV&sokMedAND=true&forklaringar=true&resurser=p.TGIAR24h",
+        "makePublic": true
+      },
+      "intervalMin": 15,
+      "enabled": true,
+      "nextRunAt": 1756903933
+    },
+    "kronox:TGIAR23h": {
+      "id": "kronox:TGIAR23h",
+      "type": "kronox-sync",
+      "payload": {
+        "sourceUrl": "https://schema.mau.se/setup/jsp/Schema.jsp?startDatum=idag&intervallTyp=a&intervallAntal=1&sprak=SV&sokMedAND=true&forklaringar=true&resurser=p.TGIAR23h",
+        "makePublic": true
+      },
+      "intervalMin": 15,
+      "enabled": true,
+      "nextRunAt": 1756903931
+    }
+  }
+}

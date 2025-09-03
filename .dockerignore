@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log
+pnpm-lock.yaml
+yarn.lock
+out
+ics
+calsyncweb
+.git
+.gitignore
+Dockerfile
+.dockerignore
