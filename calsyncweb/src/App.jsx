@@ -71,7 +71,7 @@ export default function App() {
 		setSubmitting(true);
 		try {
 			// Hit your Fastify endpoint
-			const res = await fetch('http://localhost:3000/api/public/calsync', {
+			const res = await fetch('https://api.kiterationlabs.com/api/public/calsync', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ URL: url }),
