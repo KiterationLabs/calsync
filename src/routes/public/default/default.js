@@ -10,6 +10,8 @@ import { upsertEventsFromJsonFile } from '../../../../functions/calendar/upsertE
 import { findCalendarBySummary } from '../../../../functions/calendar/findCalendarBySummary.js';
 import { buildCalendarLinks } from '../../../../functions/calendar/buildCalendarLinks.js';
 
+const nowSec = () => Math.floor(Date.now() / 1000);
+
 export default async function defaultFunction(req, reply) {
 	const timer = loginDuration.startTimer();
 	loginCounter.inc();
@@ -27,35 +29,50 @@ export default async function defaultFunction(req, reply) {
 			return reply.code(400).send({ error: 'Could not parse URL into an ICS link/resourceId' });
 		}
 
-		// 1) Quick existence check by calendar *name* (resourceId)
+		const scheduleId = `kronox:${resourceId}`;
+
+		// ---- If calendar already exists: ensure a recurring schedule and return links
 		const existingCal = await findCalendarBySummary(resourceId);
 		if (existingCal) {
+			// Idempotently ensure a background refresh job exists
+			if (!req.server.sched.state.schedules[scheduleId]) {
+				req.server.sched.upsert({
+					id: scheduleId,
+					type: 'kronox-sync',
+					payload: { sourceUrl: URL, makePublic: true },
+					intervalMin: 15,
+					enabled: true,
+				});
+			}
+			// Optional: nudge a refresh right away
+			const s = req.server.sched.state.schedules[scheduleId];
+			if (s) s.nextRunAt = nowSec();
+
 			const links = buildCalendarLinks(existingCal.id);
-			// Fast path: no sync — just return the links
 			timer({ status: 'success' });
-			return reply.send({
-				status: 'exists',
+			return reply.code(202).send({
+				status: 'exists_scheduled_refresh',
 				calendarId: existingCal.id,
 				summary: existingCal.summary,
-				links, // clickable
+				nextRunAt: s?.nextRunAt ?? null,
+				links,
 			});
 		}
 
-		// 2) Not found → run full flow (download, convert, create, upsert)
+		// ---- First-time setup: create calendar + import now (synchronous)
 		const icsFilePath = `./ics/${resourceId}.ics`;
 		const jsonOutPath = `./out/${resourceId}.json`;
 
 		const { path, bytes } = await downloadIcs(icsUrl, icsFilePath);
-		console.log(`Saved ${bytes} bytes to ${path}`);
+		req.server.log.info({ bytes, path }, 'ICS downloaded');
 
 		await icsToGcalJsonFile(icsFilePath, jsonOutPath, { pretty: true });
 
-		// Ensure auth works
+		// Sanity/auth
 		const cal = await getCalendarClient();
 		await cal.calendars.get({ calendarId: process.env.CALENDAR_ID });
-		console.log('Auth OK and calendar reachable');
 
-		// Ensure calendar exists (created if missing), make it public so links/ICS work
+		// Ensure dedicated calendar (public)
 		const calendar = await ensureCalendarBySummary({
 			summary: resourceId,
 			description: `Auto-sync for ${resourceId}`,
@@ -63,9 +80,8 @@ export default async function defaultFunction(req, reply) {
 			publicRole: 'reader',
 			updateIfDifferent: false,
 		});
-		console.log('Using calendar:', calendar.id, '-', calendar.summary);
 
-		// Upsert events
+		// Import/upsert events (your function handles throttling/backoff)
 		const report = await upsertEventsFromJsonFile(calendar.id, jsonOutPath, {
 			dryRun: false,
 			concurrency: 1,
@@ -73,7 +89,18 @@ export default async function defaultFunction(req, reply) {
 			baseDelayMs: 1500,
 			maxAttempts: 10,
 		});
-		console.log('Done:', report);
+
+		// ---- After initial import, create the recurring 15-min schedule
+		req.server.sched.upsert({
+			id: scheduleId,
+			type: 'kronox-sync',
+			payload: { sourceUrl: URL, makePublic: true },
+			intervalMin: 15,
+			enabled: true,
+		});
+		// Next run is aligned by the scheduler; if you want it sooner:
+		const s = req.server.sched.state.schedules[scheduleId];
+		if (s) s.nextRunAt = nowSec();
 
 		const links = buildCalendarLinks(calendar.id);
 
@@ -83,10 +110,11 @@ export default async function defaultFunction(req, reply) {
 			calendarId: calendar.id,
 			summary: calendar.summary,
 			report,
+			nextRunAt: s?.nextRunAt ?? null,
 			links,
 		});
 	} catch (err) {
-		console.error(err);
+		req.server.log.error({ err }, 'kronox endpoint failed');
 		timer({ status: 'fail' });
 		return reply.code(500).send({
 			error: 'Internal error',

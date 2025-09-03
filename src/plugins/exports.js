@@ -5,6 +5,7 @@ import registerHelmet from './helmet.js';
 import registerLogger from './logger.js';
 import registerRequestLogger from './requestLogger.js';
 import registerMetrics from './metrics.js';
+import registerScheduler from './scheduler.js';
 
 export default async function registerPlugins(app) {
 	await registerEnv(app); // Enable dotenv
@@ -14,4 +15,5 @@ export default async function registerPlugins(app) {
 	await registerLogger(app); // Apply logger
 	await registerRequestLogger(app); // Apply logging for requests
 	await registerMetrics(app); // Apply metrics
+	await registerScheduler(app); // Apply the scheduler
 }
