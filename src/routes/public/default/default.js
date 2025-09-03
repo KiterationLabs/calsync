@@ -1,3 +1,4 @@
+// routes/public/default/default.js
 import { loginCounter, loginDuration } from '../../../plugins/customMetrics.js';
 
 import parseURL from '../../../../functions/get-ics.js';
@@ -11,6 +12,10 @@ import { findCalendarBySummary } from '../../../../functions/calendar/findCalend
 import { buildCalendarLinks } from '../../../../functions/calendar/buildCalendarLinks.js';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
+
+function fireAndForget(promise, log) {
+	promise.catch((err) => log?.error?.({ err }, 'bg task failed'));
+}
 
 export default async function defaultFunction(req, reply) {
 	const timer = loginDuration.startTimer();
@@ -31,10 +36,9 @@ export default async function defaultFunction(req, reply) {
 
 		const scheduleId = `kronox:${resourceId}`;
 
-		// ---- If calendar already exists: ensure a recurring schedule and return links
+		// If the calendar already exists: schedule + nudge + return quickly
 		const existingCal = await findCalendarBySummary(resourceId);
 		if (existingCal) {
-			// Idempotently ensure a background refresh job exists
 			if (!req.server.sched.state.schedules[scheduleId]) {
 				req.server.sched.upsert({
 					id: scheduleId,
@@ -44,7 +48,7 @@ export default async function defaultFunction(req, reply) {
 					enabled: true,
 				});
 			}
-			// Optional: nudge a refresh right away
+			// nudge it
 			const s = req.server.sched.state.schedules[scheduleId];
 			if (s) s.nextRunAt = nowSec();
 
@@ -59,20 +63,11 @@ export default async function defaultFunction(req, reply) {
 			});
 		}
 
-		// ---- First-time setup: create calendar + import now (synchronous)
-		const icsFilePath = `./ics/${resourceId}.ics`;
-		const jsonOutPath = `./out/${resourceId}.json`;
+		// ---- Calendar missing: create it *fast*, respond, then do the heavy work in background
 
-		const { path, bytes } = await downloadIcs(icsUrl, icsFilePath);
-		req.server.log.info({ bytes, path }, 'ICS downloaded');
-
-		await icsToGcalJsonFile(icsFilePath, jsonOutPath, { pretty: true });
-
-		// Sanity/auth
+		// 1) Ensure auth & create calendar quickly
 		const cal = await getCalendarClient();
-		await cal.calendars.get({ calendarId: process.env.CALENDAR_ID });
-
-		// Ensure dedicated calendar (public)
+		await cal.calendars.get({ calendarId: process.env.CALENDAR_ID }); // sanity
 		const calendar = await ensureCalendarBySummary({
 			summary: resourceId,
 			description: `Auto-sync for ${resourceId}`,
@@ -81,40 +76,57 @@ export default async function defaultFunction(req, reply) {
 			updateIfDifferent: false,
 		});
 
-		// Import/upsert events (your function handles throttling/backoff)
-		const report = await upsertEventsFromJsonFile(calendar.id, jsonOutPath, {
-			dryRun: false,
-			concurrency: 1,
-			throttleMs: 1000,
-			baseDelayMs: 1500,
-			maxAttempts: 10,
-		});
-
-		// ---- After initial import, create the recurring 15-min schedule
-		req.server.sched.upsert({
-			id: scheduleId,
-			type: 'kronox-sync',
-			payload: { sourceUrl: URL, makePublic: true },
-			intervalMin: 15,
-			enabled: true,
-		});
-		// Next run is aligned by the scheduler; if you want it sooner:
-		const s = req.server.sched.state.schedules[scheduleId];
-		if (s) s.nextRunAt = nowSec();
-
+		// 2) Return immediately with calendarId + links (202 Accepted)
 		const links = buildCalendarLinks(calendar.id);
-
-		timer({ status: 'success' });
-		return reply.send({
-			status: 'created_and_synced',
+		const responsePayload = {
+			status: 'scheduled_create_and_sync',
 			calendarId: calendar.id,
 			summary: calendar.summary,
-			report,
-			nextRunAt: s?.nextRunAt ?? null,
+			nextRunAt: nowSec(), // we’ll nudge below
 			links,
-		});
+		};
+		timer({ status: 'success' });
+		reply.code(202).send(responsePayload);
+
+		// 3) After sending, kick background work (download → parse → upsert) and set recurring schedule
+		const bg = (async () => {
+			// prepare files
+			const icsFilePath = `./ics/${resourceId}.ics`;
+			const jsonOutPath = `./out/${resourceId}.json`;
+
+			const { path, bytes } = await downloadIcs(icsUrl, icsFilePath);
+			req.server.cc?.debug?.(`ICS saved ${bytes} bytes @ ${path}`, 'BG');
+
+			await icsToGcalJsonFile(icsFilePath, jsonOutPath, { pretty: true });
+
+			const report = await upsertEventsFromJsonFile(calendar.id, jsonOutPath, {
+				dryRun: false,
+				concurrency: 1,
+				throttleMs: 1000,
+				baseDelayMs: 1500,
+				maxAttempts: 10,
+			});
+			req.server.cc?.info?.(`initial upsert done -> ${resourceId}`, 'BG');
+			req.server.cc?.debug?.(report, 'BG');
+
+			// ensure schedule exists and nudge it (in case it was not created yet)
+			if (!req.server.sched.state.schedules[scheduleId]) {
+				req.server.sched.upsert({
+					id: scheduleId,
+					type: 'kronox-sync',
+					payload: { sourceUrl: URL, makePublic: true },
+					intervalMin: 15,
+					enabled: true,
+				});
+			}
+			const s = req.server.sched.state.schedules[scheduleId];
+			if (s) s.nextRunAt = nowSec(); // run soon, then every 15 min
+		})();
+
+		fireAndForget(bg, req.server.cc);
+		// Important: return after reply above; do not `await bg`.
 	} catch (err) {
-		req.server.log.error({ err }, 'kronox endpoint failed');
+		req.server.cc?.error?.(err?.message || err, 'kronox');
 		timer({ status: 'fail' });
 		return reply.code(500).send({
 			error: 'Internal error',
