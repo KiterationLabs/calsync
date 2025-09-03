@@ -9,7 +9,7 @@
       },
       "intervalMin": 15,
       "enabled": true,
-      "nextRunAt": 1756900635
+      "nextRunAt": 1756903930
     },
     "kronox:MT155A-20252-TS250-": {
       "id": "kronox:MT155A-20252-TS250-",
@@ -20,7 +20,7 @@
       },
       "intervalMin": 15,
       "enabled": true,
-      "nextRunAt": 1756900635
+      "nextRunAt": 1756903930
     },
     "kronox:TGIAR24h": {
       "id": "kronox:TGIAR24h",
@@ -31,7 +31,7 @@
       },
       "intervalMin": 15,
       "enabled": true,
-      "nextRunAt": 1756900636
+      "nextRunAt": 1756903933
     },
     "kronox:TGIAR23h": {
       "id": "kronox:TGIAR23h",
@@ -42,7 +42,7 @@
       },
       "intervalMin": 15,
       "enabled": true,
-      "nextRunAt": 1756900636
+      "nextRunAt": 1756903931
     }
   }
 }

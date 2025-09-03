@@ -26,7 +26,8 @@
 	},
 	"scripts": {
 		"dev": "node main.js",
-		"dev2": "nodemon --ext js,mjs,cjs --ignore schedules.json --ignore ics --ignore out --ignore calsyncweb"
+		"dev2": "nodemon --ext js,mjs,cjs --ignore schedules.json --ignore ics --ignore out --ignore calsyncweb",
+		"prod": "node --ext js,mjs,cjs --ignore schedules.json --ignore ics --ignore out --ignore calsyncweb"
 	},
 	"repository": {
 		"type": "git",

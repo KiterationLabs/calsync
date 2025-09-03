@@ -53,15 +53,13 @@ function NavItem({ to, children }) {
 }
 
 /* ---------- Nav ---------- */
-/* ---------- Nav ---------- */
 export default function Nav({ bannerAtTop = false }) {
 	return (
 		<header className="sticky top-0 z-20 border-b border-white/5 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60">
 			{/* Banner on top (inside header) */}
 			{bannerAtTop && (
 				<BetaBanner>
-					🚧 CalSync is in <span className="font-medium text-amber-200">Beta</span>. Report issues
-					via{' '}
+					CalSync is in <span className="font-medium text-amber-200">Beta</span>. Report issues via{' '}
 					<a
 						href="https://github.com/KiterationLabs/calsync/issues"
 						target="_blank"
