@@ -2,16 +2,30 @@
 	"name": "calsync",
 	"version": "1.0.0",
 	"description": "Calendar sync",
-	"main": "test.js",
+	"main": "core.js",
 	"type": "module",
 	"dependencies": {
 		"dotenv": "^17.2.1",
 		"google-auth-library": "^10.3.0",
 		"googleapis": "^159.0.0",
-		"node-ical": "^0.20.1"
+		"node-ical": "^0.20.1",
+		"@fastify/cors": "^11.0.1",
+		"@fastify/env": "^5.0.2",
+		"@fastify/formbody": "^8.0.2",
+		"@fastify/helmet": "^13.0.1",
+		"@gquittet/graceful-server": "^5.2.14",
+		"chalk": "^5.4.1",
+		"fastify": "^5.4.0",
+		"fastify-metrics": "^12.1.0",
+		"fastify-sensible": "^3.1.2",
+		"prom-client": "^15.1.3"
+	},
+	"devDependencies": {
+		"nodemon": "^3.0.1"
 	},
 	"scripts": {
-		"dev": "node main.js"
+		"dev": "node main.js",
+		"dev2": "nodemon core.js"
 	},
 	"repository": {
 		"type": "git",
