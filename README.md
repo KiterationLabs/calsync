@@ -18,8 +18,8 @@ It’s designed for students and teachers who want their timetable always up-to-
 
 ## 🚀 Getting Started
 
-If you are a student/teacher at **[Your University Name]**, you can use the hosted CalSync instance:  
-[https://calsync.example.com](https://calsync.example.com)
+If you are a student/teacher at **[Malmö University]**, you can use the hosted CalSync instance:  
+[KiterationLabs](https://kiterationlabs.com)
 
 Just provide your course schedule link (ICS URL) and Google Calendar will be updated automatically.
 
