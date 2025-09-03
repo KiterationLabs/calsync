@@ -28,7 +28,7 @@ export default function Footer() {
 				<div className="flex items-center gap-3">
 					<Logo />
 					<span className="text-sm text-neutral-400">
-						© {new Date().getFullYear()} KiterationLabs
+						© {new Date().getFullYear()} KiterationLabs LLC
 					</span>
 				</div>
 				<div className="text-sm text-neutral-400">

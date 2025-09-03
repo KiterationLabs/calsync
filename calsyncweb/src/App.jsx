@@ -299,7 +299,7 @@ export default function App() {
 						<Step
 							n={2}
 							title="CalSync creates/uses your calendar"
-							text="We ensure a dedicated calendar for your KronoX resource."
+							text="We ensure a dedicated calendar for your Kronox resource."
 						/>
 						<Step
 							n={3}
