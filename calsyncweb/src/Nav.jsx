@@ -83,7 +83,7 @@ export default function Nav({ bannerAtTop = false }) {
 					</div>
 
 					{/* Right: tagline */}
-					<div className="flex items-center gap-2 text-sm">
+					<div className="hidden sm:flex items-center gap-2 text-sm">
 						<span className="text-neutral-400">a service made possible by</span>
 						<span className="font-medium">
 							Kiteration<span className="text-sky-400">Labs</span>
