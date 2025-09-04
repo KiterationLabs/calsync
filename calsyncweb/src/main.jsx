@@ -6,13 +6,14 @@ import App from './App.jsx';
 import Contact from './Contact.jsx';
 import Nav from './Nav.jsx';
 import Footer from './Footer.jsx';
+import AdminCalendars from './AdminCalendars.jsx';
 
 createRoot(document.getElementById('root')).render(
 	<StrictMode>
 		<BrowserRouter>
 			<div className="flex flex-col min-h-screen bg-neutral-950 text-neutral-200">
 				<Nav />
-				
+
 				{/* Global background */}
 				<div className="pointer-events-none fixed inset-0 -z-10">
 					<div className="absolute inset-0 bg-[radial-gradient(1200px_500px_at_50%_-50%,rgba(56,189,248,0.15),transparent_60%)]" />
@@ -27,6 +28,10 @@ createRoot(document.getElementById('root')).render(
 						<Route
 							path="/contact"
 							element={<Contact />}
+						/>
+						<Route
+							path="/admin"
+							element={<AdminCalendars />}
 						/>
 					</Routes>
 				</div>
