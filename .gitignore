@@ -137,3 +137,4 @@ dist
 token/credentials.json
 /out
 /ics
+/rust-migr/target
